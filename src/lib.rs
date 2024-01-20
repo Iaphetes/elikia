@@ -1,10 +1,17 @@
 use bevy::{
-    core_pipeline::bloom::BloomSettings,
+    asset::LoadState,
+    core_pipeline::{bloom::BloomSettings, Skybox},
     input::touch::TouchPhase,
     prelude::*,
+    render::render_resource::{TextureViewDescriptor, TextureViewDimension},
     window::{ApplicationLifetime, WindowMode},
 };
-
+#[derive(Resource)]
+struct Cubemap {
+    is_loaded: bool,
+    index: usize,
+    image_handle: Handle<Image>,
+}
 // the `bevy_main` proc_macro generates the required boilerplate for iOS and Android
 #[bevy_main]
 fn main() {
@@ -18,7 +25,10 @@ fn main() {
         ..default()
     }))
     .add_systems(Startup, (setup_scene))
-    .add_systems(Update, (touch_camera, button_handler, handle_lifetime));
+    .add_systems(
+        Update,
+        (asset_loaded, touch_camera, button_handler, handle_lifetime),
+    );
 
     // MSAA makes some Android devices panic, this is under investigation
     // https://github.com/bevyengine/bevy/issues/8229
@@ -62,27 +72,32 @@ fn setup_scene(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-    let sun = asset_server.load("sun.gltf#Scene0");
     commands.spawn(SceneBundle {
-        scene: sun.clone(),
-        transform: Transform::from_xyz(150_000_000_000.0, 0.0, 0.0).with_scale(Vec3::splat(100000.0)),
+        scene: asset_server.load("sun.gltf#Scene0"),
+        transform: Transform::from_xyz(150_000_010_000.0, 0.0, 0.0)
+            .with_scale(Vec3::splat(100000.0)),
         ..Default::default()
     });
     commands.spawn(SceneBundle {
-        scene: sun.clone(),
-        transform: Transform::from_xyz(-150_000_000_000.0, 0.0, 0.0).with_scale(Vec3::splat(100000.0)),
+        scene: asset_server.load("planet.glb#Scene0"),
+        transform: Transform::from_xyz(16_772.0, 11_000.0, 0.0),
         ..Default::default()
     });
-    commands.spawn(SceneBundle {
-        scene: sun.clone(),
-        transform: Transform::from_xyz(0.0, 0.0, 150_000_000_000.0).with_scale(Vec3::splat(100000.0)),
-        ..Default::default()
-    });
-    commands.spawn(SceneBundle {
-        scene: sun.clone(),
-        transform: Transform::from_xyz(0.0, 0.0, -150_000_000_000.0 ).with_scale(Vec3::splat(100000.0)),
-        ..Default::default()
-    });
+    // commands.spawn(SceneBundle {
+    //     scene: sun.clone(),
+    //     transform: Transform::from_xyz(-150_000_000_000.0, 0.0, 0.0).with_scale(Vec3::splat(100000.0)),
+    //     ..Default::default()
+    // });
+    // commands.spawn(SceneBundle {
+    //     scene: sun.clone(),
+    //     transform: Transform::from_xyz(0.0, 0.0, 150_000_000_000.0).with_scale(Vec3::splat(100000.0)),
+    //     ..Default::default()
+    // });
+    // commands.spawn(SceneBundle {
+    //     scene: sun.clone(),
+    //     transform: Transform::from_xyz(0.0, 0.0, -150_000_000_000.0 ).with_scale(Vec3::splat(100000.0)),
+    //     ..Default::default()
+    // });
     // commands.spawn(SceneBundle {
     //     scene: sun.clone(),
     //     transform: Transform::from_xyz(-1_000_000.0, 0.0, 0.0),
@@ -147,10 +162,11 @@ fn setup_scene(
         },
         ..default()
     });
+    let skybox_handle: Handle<Image> = asset_server.load("textures/skybox/stacked.png");
     // camera
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::ZERO, Vec3::Z),
+            transform: Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::X, Vec3::Z),
 
             camera: Camera {
                 hdr: true,
@@ -160,8 +176,13 @@ fn setup_scene(
             ..default()
         },
         BloomSettings::default(),
+        Skybox(skybox_handle.clone()),
     ));
-
+    commands.insert_resource(Cubemap {
+        is_loaded: false,
+        index: 0,
+        image_handle: skybox_handle,
+    });
     // Test ui
     commands
         .spawn(ButtonBundle {
@@ -187,7 +208,35 @@ fn setup_scene(
             ));
         });
 }
+fn asset_loaded(
+    asset_server: Res<AssetServer>,
+    mut images: ResMut<Assets<Image>>,
+    mut cubemap: ResMut<Cubemap>,
+    mut skyboxes: Query<&mut Skybox>,
+) {
+    if !cubemap.is_loaded
+        && asset_server.get_load_state(cubemap.image_handle.clone_weak()) == Some(LoadState::Loaded)
+    {
+        let image = images.get_mut(&cubemap.image_handle).unwrap();
+        // NOTE: PNGs do not have any metadata that could indicate they contain a cubemap texture,
+        // so they appear as one texture. The following code reconfigures the texture as necessary.
+        if image.texture_descriptor.array_layer_count() == 1 {
+            image.reinterpret_stacked_2d_as_array(
+                image.texture_descriptor.size.height / image.texture_descriptor.size.width,
+            );
+            image.texture_view_descriptor = Some(TextureViewDescriptor {
+                dimension: Some(TextureViewDimension::Cube),
+                ..default()
+            });
+        }
 
+        for mut skybox in &mut skyboxes {
+            skybox.0 = cubemap.image_handle.clone();
+        }
+
+        cubemap.is_loaded = true;
+    }
+}
 fn button_handler(
     mut interaction_query: Query<
         (&Interaction, &mut BackgroundColor),
