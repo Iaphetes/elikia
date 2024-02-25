@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bevy::{
     asset::LoadState,
     core_pipeline::{bloom::BloomSettings, Skybox},
@@ -6,11 +8,27 @@ use bevy::{
     render::render_resource::{TextureViewDescriptor, TextureViewDimension},
     window::{ApplicationLifetime, WindowMode},
 };
+
+
+
 #[derive(Resource)]
 struct Cubemap {
     is_loaded: bool,
     index: usize,
     image_handle: Handle<Image>,
+}
+
+
+#[derive(Resource)]
+struct MetaParameters {
+    time_per_planet: Duration
+}
+#[derive(Resource)]
+struct PomodoroParameters {
+    sprint_time: Duration,
+    small_pause_time: Duration,
+    long_pause_time: Duration,
+    sprints: u8,
 }
 // the `bevy_main` proc_macro generates the required boilerplate for iOS and Android
 #[bevy_main]
@@ -24,7 +42,7 @@ fn main() {
         }),
         ..default()
     }))
-    .add_systems(Startup, (setup_scene))
+    .add_systems(Startup, (setup_scene, create_exploration_space))
     .add_systems(
         Update,
         (asset_loaded, touch_camera, button_handler, handle_lifetime),
@@ -35,6 +53,13 @@ fn main() {
     #[cfg(target_os = "android")]
     app.insert_resource(Msaa::Off);
 
+    app.insert_resource(PomodoroParameters {
+        sprint_time: Duration::new(2 * 60, 0),
+        small_pause_time: Duration::new(1* 60, 0),
+        long_pause_time: Duration::new(5 * 60, 0),
+        sprints: 4
+    });
+    app.insert_resource(MetaParameters{time_per_planet:Duration::new(1 * 60, 0)});
     app.run();
 }
 
@@ -65,6 +90,29 @@ fn touch_camera(
     }
 }
 
+fn create_exploration_space(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
+    pomodoro_parametesr: Res<PomodoroParameters>,
+    meta_parameters: Res<MetaParameters>
+){
+    commands.spawn(SceneBundle {
+        scene: asset_server.load("sun.gltf#Scene0"),
+        ..Default::default()
+    });
+    let time_per_planet: u8 =(pomodoro_parametesr.sprint_time.as_secs() as f64 / meta_parameters.time_per_planet.as_secs() as f64).round() as u8; 
+    for _ in 0..time_per_planet - 1{
+        
+        commands.spawn(SceneBundle {
+            scene: asset_server.load("planet.glb#Scene0"),
+            transform: Transform::from_xyz(16_772.0, 11_000.0, 0.0),
+            ..Default::default()
+        });
+    }
+}
+
 /// set up a simple 3D scene
 fn setup_scene(
     mut commands: Commands,
@@ -72,82 +120,16 @@ fn setup_scene(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-    commands.spawn(SceneBundle {
-        scene: asset_server.load("sun.gltf#Scene0"),
-        transform: Transform::from_xyz(150_000_010_000.0, 0.0, 0.0)
-            .with_scale(Vec3::splat(100000.0)),
-        ..Default::default()
-    });
-    commands.spawn(SceneBundle {
-        scene: asset_server.load("planet.glb#Scene0"),
-        transform: Transform::from_xyz(16_772.0, 11_000.0, 0.0),
-        ..Default::default()
-    });
     // commands.spawn(SceneBundle {
-    //     scene: sun.clone(),
-    //     transform: Transform::from_xyz(-150_000_000_000.0, 0.0, 0.0).with_scale(Vec3::splat(100000.0)),
+    //     scene: asset_server.load("sun.gltf#Scene0"),
+    //     transform: Transform::from_xyz(150_000_010_000.0, 0.0, 0.0)
+    //         .with_scale(Vec3::splat(100000.0)),
     //     ..Default::default()
     // });
     // commands.spawn(SceneBundle {
-    //     scene: sun.clone(),
-    //     transform: Transform::from_xyz(0.0, 0.0, 150_000_000_000.0).with_scale(Vec3::splat(100000.0)),
+    //     scene: asset_server.load("planet.glb#Scene0"),
+    //     transform: Transform::from_xyz(16_772.0, 11_000.0, 0.0),
     //     ..Default::default()
-    // });
-    // commands.spawn(SceneBundle {
-    //     scene: sun.clone(),
-    //     transform: Transform::from_xyz(0.0, 0.0, -150_000_000_000.0 ).with_scale(Vec3::splat(100000.0)),
-    //     ..Default::default()
-    // });
-    // commands.spawn(SceneBundle {
-    //     scene: sun.clone(),
-    //     transform: Transform::from_xyz(-1_000_000.0, 0.0, 0.0),
-    //     ..Default::default()
-    // });
-    // commands.spawn(SceneBundle {
-    //     scene: sun.clone(),
-    //     transform: Transform::from_xyz(0.0, 0.0, 1_000_000.0),
-    //     ..Default::default()
-    // });
-    // commands.spawn(SceneBundle {
-    //     scene: sun.clone(),
-    //     transform: Transform::from_xyz(0.0, 0.0, -1_000_000.0),
-    //     ..Default::default()
-    // });
-    // commands.spawn(SceneBundle {
-    //     scene: sun.clone(),
-    //     transform: Transform::from_xyz(0.0, 1_000_000.0, 0.0),
-    //     ..Default::default()
-    // });
-    // commands.spawn(SceneBundle {
-    //     scene: sun.clone(),
-    //     transform: Transform::from_xyz(0.0, -1_000_000.0, 0.0),
-    //     ..Default::default()
-    // });
-    // plane
-    // commands.spawn(PbrBundle {
-    //     mesh: meshes.add(shape::Plane::from_size(5.0).into()),
-    //     material: materials.add(Color::rgb(0.1, 0.2, 0.1).into()),
-    //     ..default()
-    // });
-    // // cube
-    // commands.spawn(PbrBundle {
-    //     mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
-    //     material: materials.add(Color::rgb(0.5, 0.4, 0.3).into()),
-    //     transform: Transform::from_xyz(0.0, 0.5, 0.0),
-    //     ..default()
-    // });
-    // // sphere
-    // commands.spawn(PbrBundle {
-    //     mesh: meshes.add(
-    //         Mesh::try_from(shape::Icosphere {
-    //             subdivisions: 4,
-    //             radius: 0.5,
-    //         })
-    //         .unwrap(),
-    //     ),
-    //     material: materials.add(Color::rgb(0.1, 0.4, 0.8).into()),
-    //     transform: Transform::from_xyz(1.5, 1.5, 1.5),
-    //     ..default()
     // });
     // light
     commands.spawn(PointLightBundle {
@@ -166,7 +148,7 @@ fn setup_scene(
     // camera
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::X, Vec3::Z),
+            transform: Transform::from_xyz(150_000.0, 0.0, 0.0).looking_at(-Vec3::X, Vec3::Z),
 
             camera: Camera {
                 hdr: true,
