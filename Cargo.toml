@@ -6,12 +6,15 @@ description = "Example for building an iOS or Android app with Bevy"
 publish = false
 license = "MIT OR Apache-2.0"
 
+[[bin]]
+name = "elikia"
+path = "src/main.rs"
 [lib]
 name = "elikia"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-bevy = "0.12"
+bevy = "0.13"
 
 [package.metadata.android]
 package = "org.bevyengine.elikia"
