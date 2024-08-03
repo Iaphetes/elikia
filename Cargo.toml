@@ -14,8 +14,27 @@ name = "elikia"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-bevy = "0.13"
+# bevy = "0.14"
+bevy = { version = "0.14.0", default_features = false, features = [
+    # Core
+    "bevy_core_pipeline",
+    "multi_threaded",
+    "bevy_winit",
+    "bevy_audio",
+    "bevy_sprite",
+    "bevy_text",
 
+    # Core formats
+    "vorbis",
+    "png",
+
+    # ... Enable what you need here
+    "wayland",
+    "bevy_gltf",
+    "tonemapping_luts",
+] }
+rand = "0.8"
+bevy_lunex = {version = "0.2", features = ["debug"]}
 [package.metadata.android]
 package = "org.bevyengine.elikia"
 apk_name = "bevyexample"

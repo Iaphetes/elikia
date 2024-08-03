@@ -1,22 +1,10 @@
-use std::time::Duration;
+use std::{process::exit, time::Duration};
 
-use bevy::{
-    asset::LoadState,
-    core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping, Skybox},
-    input::touch::TouchPhase,
-    prelude::*,
-    render::render_resource::{TextureViewDescriptor, TextureViewDimension},
-    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
-    window::{ApplicationLifetime, WindowMode},
-};
+use bevy::{input::touch::TouchPhase, prelude::*, window::AppLifecycle};
+use bevy_lunex::prelude::*;
 
-#[derive(Resource)]
-struct Cubemap {
-    is_loaded: bool,
-    index: usize,
-    image_handle: Handle<Image>,
-}
-
+use crate::gameui::baseui::ElikiaUI;
+use rand::Rng;
 #[derive(Resource)]
 struct MetaParameters {
     time_per_planet: Duration,
@@ -28,22 +16,28 @@ struct PomodoroParameters {
     long_pause_time: Duration,
     sprints: u8,
 }
+#[derive(Component)]
+pub struct Player;
 pub struct MainGame;
 impl Plugin for MainGame {
     fn build(&self, app: &mut App) {
-        app.add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                resizable: false,
-                mode: WindowMode::BorderlessFullscreen,
+        app.add_plugins((
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    // resizable: false,
+                    // mode: WindowMode::BorderlessFullscreen,
+                    ..default()
+                }),
                 ..default()
             }),
-            ..default()
-        }))
-        .add_systems(Startup, (setup_scene, create_exploration_space))
+            UiPlugin,
+            ElikiaUI,
+        ))
         .add_systems(
-            Update,
-            (asset_loaded, touch_camera, button_handler, handle_lifetime),
-        );
+            Startup,
+            (setup_scene), //, create_exploration_space.after(setup_scene)),
+        )
+        .add_systems(Update, (touch_camera, handle_lifetime));
 
         // MSAA makes some Android devices panic, this is under investigation
         // https://github.com/bevyengine/bevy/issues/8229
@@ -88,50 +82,71 @@ fn touch_camera(
         *last_position = Some(touch.position);
     }
 }
-
+fn distribute_planets(
+    initial_position: &Transform,
+    num_planets: u8,
+    system_size: f32,
+    speed: f32,
+    pomodoro_interval: f32,
+) -> Vec<Transform> {
+    let mut planet_dist: Vec<Transform> = Vec::new();
+    let mut last_pos: Transform = initial_position.clone();
+    let mut rng = rand::thread_rng();
+    for _p in 0..num_planets {
+        let mut new_pos: Transform = Transform::from_xyz(0.0, 0.0, speed * pomodoro_interval);
+        new_pos.rotate_around(
+            Vec3::ZERO,
+            Quat::from_rotation_y(rng.gen_range(0..360) as f32),
+        );
+        new_pos.translation += last_pos.translation;
+        new_pos.translation = new_pos.translation.with_y(0.0);
+        // info!("{:?}", new_pos);
+        last_pos = new_pos;
+        planet_dist.push(new_pos)
+    }
+    return planet_dist;
+}
+fn display_error_message(error_message: &str) {
+    error!(error_message);
+    exit(1)
+}
 fn create_exploration_space(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    // mut meshes: ResMut<Assets<Mesh>>,
+    // mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
-    pomodoro_parametesr: Res<PomodoroParameters>,
-    meta_parameters: Res<MetaParameters>,
+    pomodoro_parameters: Res<PomodoroParameters>,
+    // meta_parameters: Res<MetaParameters>,
+    player_transform: Query<&Transform, With<Player>>,
 ) {
+    let initial_transform = player_transform
+        .get_single()
+        .expect("No player was instantiated");
     commands.spawn(SceneBundle {
         scene: asset_server.load("sun.gltf#Scene0"),
         ..Default::default()
     });
-    // let time_per_planet: u8 = (pomodoro_parametesr.sprint_time.as_secs() as f64
-    //     / meta_parameters.time_per_planet.as_secs() as f64)
-    //     .round() as u8;
-    // for _ in 0..time_per_planet - 1 {
-    //     commands.spawn(SceneBundle {
-    //         scene: asset_server.load("planet.glb#Scene0"),
-    //         transform: Transform::from_xyz(16_772.0, 11_000.0, 0.0),
-    //         ..Default::default()
-    //     });
-    // }
+    let system_size: f32 = 200_000.0;
+    let speed: f32 = system_size / pomodoro_parameters.sprint_time.as_secs() as f32;
+
+    let planet_distribution: Vec<Transform> = distribute_planets(
+        initial_transform,
+        pomodoro_parameters.sprints,
+        system_size,
+        speed,
+        pomodoro_parameters.sprint_time.as_secs() as f32,
+    );
+    for planet_transform in planet_distribution {
+        commands.spawn(SceneBundle {
+            scene: asset_server.load("planet.glb#Scene0"),
+            transform: planet_transform.with_scale(Vec3::splat(10.0)),
+            ..Default::default()
+        });
+    }
 }
 
 /// set up a simple 3D scene
-fn setup_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    asset_server: Res<AssetServer>,
-) {
-    // commands.spawn(SceneBundle {
-    //     scene: asset_server.load("sun.gltf#Scene0"),
-    //     transform: Transform::from_xyz(150_000_010_000.0, 0.0, 0.0)
-    //         .with_scale(Vec3::splat(100000.0)),
-    //     ..Default::default()
-    // });
-    // commands.spawn(SceneBundle {
-    //     scene: asset_server.load("planet.glb#Scene0"),
-    //     transform: Transform::from_xyz(16_772.0, 11_000.0, 0.0),
-    //     ..Default::default()
-    // });
-    // light
+fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(PointLightBundle {
         transform: Transform::from_xyz(4.0, 8.0, 4.0),
         point_light: PointLight {
@@ -144,140 +159,12 @@ fn setup_scene(
         },
         ..default()
     });
-    let skybox_handle: Handle<Image> = asset_server.load("textures/skybox/stacked.png");
-    // camera
-    commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_xyz(150_000.0, 0.0, 0.0).looking_at(-Vec3::X, Vec3::Z),
-
-            camera: Camera {
-                hdr: true,
-
-                ..default()
-            },
-            tonemapping: Tonemapping::TonyMcMapface,
-            ..default()
-        },
-        BloomSettings::default(),
-        Skybox {
-            image: skybox_handle.clone(),
-            brightness: 1000.0,
-        },
-    ));
-    commands.insert_resource(Cubemap {
-        is_loaded: false,
-        index: 0,
-        image_handle: skybox_handle,
-    });
-    // Test ui
-    commands
-        .spawn(ButtonBundle {
-            style: Style {
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                position_type: PositionType::Absolute,
-                left: Val::Px(50.0),
-                right: Val::Px(50.0),
-                bottom: Val::Px(50.0),
-                ..default()
-            },
-            ..default()
-        })
-        .with_children(|b| {
-            b.spawn(TextBundle::from_section(
-                "Test Button",
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::BLACK,
-                    ..default()
-                },
-            ));
-        });
-    commands
-        .spawn(ButtonBundle {
-            style: Style {
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                position_type: PositionType::Absolute,
-                left: Val::Px(50.0),
-                right: Val::Px(50.0),
-                bottom: Val::Px(50.0),
-                ..default()
-            },
-            ..default()
-        })
-        .with_children(|b| {
-            b.spawn(TextBundle::from_section(
-                "Test Button",
-                TextStyle {
-                    font_size: 30.0,
-                    color: Color::BLACK,
-                    ..default()
-                },
-            ));
-        });
 }
-fn asset_loaded(
-    asset_server: Res<AssetServer>,
-    mut images: ResMut<Assets<Image>>,
-    mut cubemap: ResMut<Cubemap>,
-    mut skyboxes: Query<&mut Skybox>,
-) {
-    if !cubemap.is_loaded
-        && asset_server.get_load_state(cubemap.image_handle.clone_weak()) == Some(LoadState::Loaded)
-    {
-        let image = images.get_mut(&cubemap.image_handle).unwrap();
-        // NOTE: PNGs do not have any metadata that could indicate they contain a cubemap texture,
-        // so they appear as one texture. The following code reconfigures the texture as necessary.
-        if image.texture_descriptor.array_layer_count() == 1 {
-            image.reinterpret_stacked_2d_as_array(
-                image.texture_descriptor.size.height / image.texture_descriptor.size.width,
-            );
-            image.texture_view_descriptor = Some(TextureViewDescriptor {
-                dimension: Some(TextureViewDimension::Cube),
-                ..default()
-            });
-        }
-
-        for mut skybox in &mut skyboxes {
-            skybox.image = cubemap.image_handle.clone();
-        }
-
-        cubemap.is_loaded = true;
-    }
-}
-fn button_handler(
-    mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor),
-        (Changed<Interaction>, With<Button>),
-    >,
-) {
-    for (interaction, mut color) in &mut interaction_query {
-        match *interaction {
-            Interaction::Pressed => {
-                *color = Color::BLUE.into();
-            }
-            Interaction::Hovered => {
-                *color = Color::GRAY.into();
-            }
-            Interaction::None => {
-                *color = Color::WHITE.into();
-            }
-        }
-    }
-}
-
-// fn setup_music(asset_server: Res<AssetServer>, mut commands: Commands) {
-//     commands.spawn(AudioBundle {
-//         source: asset_server.load("sounds/Windless Slopes.ogg"),
-//         settings: PlaybackSettings::LOOP,
-//     });
-// }
 
 // Pause audio when app goes into background and resume when it returns.
 // This is handled by the OS on iOS, but not on Android.
 fn handle_lifetime(
-    mut lifetime_events: EventReader<ApplicationLifetime>,
+    mut lifetime_events: EventReader<AppLifecycle>,
     // music_controller: Query<&AudioSink>,
 ) {
     for _event in lifetime_events.read() {
@@ -288,5 +175,3 @@ fn handle_lifetime(
         // }
     }
 }
-
-fn ui() {}
